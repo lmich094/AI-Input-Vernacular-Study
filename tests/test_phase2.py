@@ -1,6 +1,7 @@
+import json
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
-from phase2_evaluate import format_user_message, evaluate_question, get_model
+from phase2_evaluate import format_user_message, evaluate_question, get_model, load_question_set, run_evaluation
 
 SAMPLE_ENTRY = {
     "id": "math_0",
@@ -81,3 +82,46 @@ def test_get_model_from_cli_arg():
     with patch("sys.argv", ["phase2_evaluate.py", "--model", "claude-sonnet-4-6"]):
         model = get_model()
     assert model == "claude-sonnet-4-6"
+
+def test_load_question_set(tmp_path):
+    entries = [{"id": "math_0", "l1": "Q?", "l2": "Q?", "l3": "Q?"}]
+    path = tmp_path / "question_set.json"
+    path.write_text(json.dumps(entries))
+    loaded = load_question_set(str(path))
+    assert loaded == entries
+
+@pytest.mark.asyncio
+async def test_run_evaluation_returns_one_result_per_question_per_level():
+    entries = [SAMPLE_ENTRY]
+
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="B")]
+    mock_response.usage.input_tokens = 40
+    mock_response.usage.output_tokens = 1
+
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+    with patch("phase2_evaluate.anthropic.AsyncAnthropic", return_value=mock_client):
+        results = await run_evaluation(entries, model="claude-sonnet-4-6", batch_size=5)
+
+    assert len(results) == 3  # L1, L2, L3
+    levels = {r["level"] for r in results}
+    assert levels == {"L1", "L2", "L3"}
+
+@pytest.mark.asyncio
+async def test_run_evaluation_respects_batch_size():
+    entries = [SAMPLE_ENTRY] * 6  # 6 entries × 3 levels = 18 calls
+
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="A")]
+    mock_response.usage.input_tokens = 40
+    mock_response.usage.output_tokens = 1
+
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+    with patch("phase2_evaluate.anthropic.AsyncAnthropic", return_value=mock_client):
+        results = await run_evaluation(entries, model="claude-sonnet-4-6", batch_size=3)
+
+    assert len(results) == 18
