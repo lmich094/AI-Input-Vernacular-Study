@@ -1,4 +1,5 @@
 import json
+import os
 import asyncio
 import anthropic
 from datasets import load_dataset
@@ -68,3 +69,50 @@ def build_entry(raw: dict, l3_question: str) -> dict:
         "l3": l3_question,
         "l3_generation_model": GENERATION_MODEL,
     }
+
+
+async def generate_l3_variants(raw_entries: list[dict], batch_size: int = 10) -> list[str]:
+    """Send each L2 question to the LLM to produce an L3 variant. Returns list of L3 strings."""
+    client = anthropic.AsyncAnthropic()
+    sem = asyncio.Semaphore(batch_size)
+
+    async def _generate_one(entry: dict) -> str:
+        async with sem:
+            response = await client.messages.create(
+                model=GENERATION_MODEL,
+                max_tokens=512,
+                system=L3_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": entry["question"]}],
+            )
+            return response.content[0].text.strip()
+
+    tasks = [_generate_one(entry) for entry in raw_entries]
+    return await asyncio.gather(*tasks)
+
+
+def save_question_set(entries: list[dict], path: str) -> None:
+    if os.path.dirname(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(entries, f, indent=2)
+
+
+async def _main():
+    print("Loading MMLU sample (2 per subject)...")
+    raw_entries = load_mmlu_sample(n_per_subject=2)
+    print(f"Loaded {len(raw_entries)} questions across {len(MMLU_SUBJECTS)} subjects.")
+
+    print("Generating L3 variants via LLM (this may take a few minutes)...")
+    l3_variants = await generate_l3_variants(raw_entries)
+
+    print("Building final entries...")
+    entries = [build_entry(raw, l3) for raw, l3 in zip(raw_entries, l3_variants)]
+
+    output_path = "data/question_set.json"
+    save_question_set(entries, output_path)
+    print(f"Saved {len(entries)} entries to {output_path}")
+    print("Review data/question_set.json, then commit it to the repo.")
+
+
+if __name__ == "__main__":
+    asyncio.run(_main())

@@ -1,5 +1,8 @@
-from unittest.mock import patch, MagicMock
-from phase1_generate_questions import load_mmlu_sample, build_entry
+import json
+import os
+import pytest
+from unittest.mock import patch, AsyncMock, MagicMock
+from phase1_generate_questions import load_mmlu_sample, build_entry, generate_l3_variants, save_question_set
 
 def _make_fake_dataset(questions):
     """Return a mock HF dataset-like object."""
@@ -47,3 +50,57 @@ def test_build_entry_applies_l2_and_stores_l3():
     assert entry["choices"] == ["Alpha", "Beta", "Gamma", "Delta"]
     assert entry["correct_answer"] == "B"
     assert "question" not in entry  # raw field removed
+
+
+@pytest.mark.asyncio
+async def test_generate_l3_variants_calls_api_per_question():
+    raw_entries = [
+        {"id": "math_0", "subject": "math", "question": "Wut r u doing?",
+         "choices": ["A", "B", "C", "D"], "correct_answer": "B"},
+        {"id": "sci_0", "subject": "sci", "question": "Wut is d answer?",
+         "choices": ["A", "B", "C", "D"], "correct_answer": "A"},
+    ]
+
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="Wut r u doin?")]
+
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+    with patch("phase1_generate_questions.anthropic.AsyncAnthropic", return_value=mock_client):
+        l3_variants = await generate_l3_variants(raw_entries)
+
+    assert len(l3_variants) == 2
+    assert mock_client.messages.create.call_count == 2
+
+@pytest.mark.asyncio
+async def test_generate_l3_variants_returns_l3_text():
+    raw_entries = [
+        {"id": "math_0", "subject": "math", "question": "Wut r u doing?",
+         "choices": ["A", "B", "C", "D"], "correct_answer": "B"},
+    ]
+
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock(text="Wut r u doin?")]
+
+    mock_client = MagicMock()
+    mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+    with patch("phase1_generate_questions.anthropic.AsyncAnthropic", return_value=mock_client):
+        l3_variants = await generate_l3_variants(raw_entries)
+
+    assert l3_variants[0] == "Wut r u doin?"
+
+def test_save_question_set_writes_valid_json(tmp_path):
+    entries = [{"id": "math_0", "l1": "Q?", "l2": "Q?", "l3": "Q?"}]
+    path = str(tmp_path / "question_set.json")
+    save_question_set(entries, path)
+    with open(path) as f:
+        loaded = json.load(f)
+    assert loaded == entries
+
+def test_save_question_set_creates_parent_dirs(tmp_path):
+    entries = [{"id": "math_0"}]
+    path = str(tmp_path / "nested" / "dir" / "question_set.json")
+    save_question_set(entries, path)
+    assert os.path.exists(path)
