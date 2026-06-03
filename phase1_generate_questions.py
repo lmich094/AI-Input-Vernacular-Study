@@ -28,6 +28,7 @@ MMLU_SUBJECTS = [
 
 ANSWER_LETTERS = ["A", "B", "C", "D"]
 
+# Used by Phase 1 L3 generation workflow (Task 6)
 L3_SYSTEM_PROMPT = (
     "You are a text abbreviation engine. Your job is to shorten words in the input "
     "text where the abbreviated form would still be understandable to a human reader. "
@@ -36,6 +37,7 @@ L3_SYSTEM_PROMPT = (
     "with no explanation."
 )
 
+# Used by Phase 1 L3 generation workflow (Task 6)
 GENERATION_MODEL = "claude-haiku-4-5-20251001"
 
 
@@ -55,6 +57,7 @@ def load_mmlu_sample(n_per_subject: int = 2) -> list[dict]:
     return entries
 
 
+# Used by Phase 1 L3 generation workflow (Task 6)
 def build_entry(raw: dict, l3_question: str) -> dict:
     l2_question = apply_abbreviations(raw["question"])
     return {
@@ -69,11 +72,16 @@ def build_entry(raw: dict, l3_question: str) -> dict:
     }
 
 
-def save_question_set(entries: list[dict], path: str) -> None:
+def _write_json(data: list[dict], path: str) -> None:
+    """Helper to write JSON data to a file, creating parent directories if needed."""
     if os.path.dirname(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        json.dump(entries, f, indent=2)
+        json.dump(data, f, indent=2)
+
+
+def save_question_set(entries: list[dict], path: str) -> None:
+    _write_json(entries, path)
 
 
 def save_raw_questions(entries: list[dict], path: str = "data/raw_questions.json") -> None:
@@ -90,10 +98,7 @@ def save_raw_questions(entries: list[dict], path: str = "data/raw_questions.json
         }
         for e in entries
     ]
-    if os.path.dirname(path):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(raw, f, indent=2)
+    _write_json(raw, path)
 
 
 if __name__ == "__main__":
