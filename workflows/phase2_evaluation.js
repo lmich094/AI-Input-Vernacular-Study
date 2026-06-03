@@ -10,6 +10,7 @@ export const meta = {
 
 const PROJECT_DIR = '/home/liam_michka/tokenUse/AI-Input-Vernacular-Study'
 
+// args is injected by the workflow runtime
 const model = (args && args.model) ? args.model : 'claude-sonnet-4-6'
 
 // Step 1: load question set
@@ -29,6 +30,7 @@ const loadResult = await agent(
 
 const entries = loadResult.entries
 log(`Loaded ${entries.length} questions. Running ${entries.length * 3} evaluations with model: ${model}`)
+log(`Note: token counts are character-based estimates (~4 chars/token), not actual API usage`)
 
 // Step 2: evaluate all 342 combinations
 phase('Evaluate')
@@ -76,6 +78,9 @@ const results = await pipeline(
         total_tokens: inputTokensEst + 1,
         model,
       }
+    }).catch(err => {
+      log(`Warning: eval failed for ${entry.id}:${level}: ${err.message}`)
+      return null
     })
   }
 )
@@ -91,14 +96,19 @@ log(`Evaluation complete. ${validResults.length}/${tasks.length} results collect
 // Step 3: write results via Python
 phase('Report')
 
-const safeModel = model.replace(/\//g, '-')
+const safeModel = model.replace(/[^a-zA-Z0-9._-]/g, '-')
 
 await agent(
   `Run this command in ${PROJECT_DIR}:
 
-echo '${JSON.stringify(validResults)}' | python3 -c "
-import json, sys, os
-results = json.loads(sys.stdin.read())
+cat <<'RESULTS_EOF' > /tmp/phase2_results_${safeModel}.json
+${JSON.stringify(validResults)}
+RESULTS_EOF
+
+python3 -c "
+import json, os
+with open('/tmp/phase2_results_${safeModel}.json') as f:
+    results = json.load(f)
 from report import write_results, generate_summary_report, save_report
 os.makedirs('results', exist_ok=True)
 write_results(results, 'results/raw_results_${safeModel}.csv', 'results/raw_results_${safeModel}.xlsx')
