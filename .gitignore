@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .env
 results/
+data/raw_questions.json
