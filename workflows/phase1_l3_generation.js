@@ -8,15 +8,17 @@ export const meta = {
   ],
 }
 
+const PROJECT_DIR = '/home/liam_michka/tokenUse/AI-Input-Vernacular-Study'
+
 // Step 1: generate raw questions (L1 + L2) via Python
 phase('Load')
 await agent(
-  'Run the command: cd /home/liam_michka/tokenUse/AI-Input-Vernacular-Study && python3 phase1_generate_questions.py\n\nConfirm that data/raw_questions.json was created and report how many entries it contains.',
+  `Run the command: cd ${PROJECT_DIR} && python3 phase1_generate_questions.py\n\nConfirm that data/raw_questions.json was created and report how many entries it contains.`,
   { label: 'generate-raw' }
 )
 
 const rawResult = await agent(
-  'Read the file data/raw_questions.json in /home/liam_michka/tokenUse/AI-Input-Vernacular-Study and return its contents as a JSON array.',
+  `Read the file data/raw_questions.json in ${PROJECT_DIR} and return its contents as a JSON array.`,
   {
     label: 'read-raw',
     schema: {
@@ -55,6 +57,11 @@ const l3Results = await pipeline(
 // Step 3: assemble and save question_set.json
 phase('Save')
 
+if (l3Results.length !== entries.length) {
+  throw new Error(`L3 generation mismatch: expected ${entries.length} results, got ${l3Results.length}`)
+}
+
+// Must match GENERATION_MODEL in phase1_generate_questions.py
 const finalEntries = entries.map((entry, i) => ({
   id: entry.id,
   subject: entry.subject,
@@ -66,13 +73,20 @@ const finalEntries = entries.map((entry, i) => ({
   l3_generation_model: 'claude-haiku-4-5-20251001',
 }))
 
-const savePrompt = `Write the following JSON to the file data/question_set.json in /home/liam_michka/tokenUse/AI-Input-Vernacular-Study (overwrite if exists):
+await agent(
+  `Run this command in ${PROJECT_DIR}:
 
-${JSON.stringify(finalEntries, null, 2)}
+echo '${JSON.stringify(finalEntries)}' | python3 -c "
+import json, sys
+entries = json.loads(sys.stdin.read())
+from phase1_generate_questions import save_question_set
+save_question_set(entries, 'data/question_set.json')
+print(f'Saved {len(entries)} entries to data/question_set.json')
+"
 
-Then confirm the file was written and report the entry count.`
-
-await agent(savePrompt, { label: 'save-question-set', phase: 'Save' })
+Confirm the output shows the entry count.`,
+  { label: 'save-question-set', phase: 'Save' }
+)
 
 log(`Phase 1 complete. ${finalEntries.length} entries saved to data/question_set.json.`)
 log('Next: review data/question_set.json, then commit it to the repo.')
